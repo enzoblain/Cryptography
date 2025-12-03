@@ -74,11 +74,12 @@ jobs:
         run: cargo test --verbose --features speed
 
   bench_default:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # Switch benchmarks to Windows runners so performance reflects real-world user hardware (no AVX2).
     needs: [build_libs, test_default, test_speed]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
       - name: Run Classic 256
         run: cargo bench --bench sha256
 
@@ -88,11 +89,13 @@ jobs:
           path: lib
 
       - name: Extract mean
+        shell: bash
         run: |
           M=$(jq '.mean.point_estimate' target/criterion/sha256/new/estimates.json)
           echo $M > mean.txt
 
       - name: Extract size
+        shell: bash
         run: |
           LIB=$(ls -1t lib/lib*.rlib | head -1)
           stat -c %s "$LIB" > size.txt
@@ -105,11 +108,12 @@ jobs:
             size.txt
 
   bench_speed:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # Switch benchmarks to Windows runners so performance reflects real-world user hardware (no AVX2).
     needs: [build_libs, test_default, test_speed]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
       - name: Run Turbo 256
         run: cargo bench --bench sha256 --features speed
 
@@ -119,11 +123,13 @@ jobs:
           path: lib
 
       - name: Extract mean
+        shell: bash
         run: |
           M=$(jq '.mean.point_estimate' target/criterion/sha256/new/estimates.json)
           echo $M > mean.txt
 
       - name: Extract size
+        shell: bash
         run: |
           LIB=$(ls -1t lib/lib*.rlib | head -1)
           stat -c %s "$LIB" > size.txt
@@ -136,11 +142,12 @@ jobs:
             size.txt
 
   bench_ref:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # Switch benchmarks to Windows runners so performance reflects real-world user hardware (no AVX2).
     needs: [build_libs, test_default, test_speed]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
       - name: Run Reference 256
         run: cargo bench --bench sha256_ref
 
@@ -150,11 +157,13 @@ jobs:
           path: lib
 
       - name: Extract mean
+        shell: bash
         run: |
           M=$(jq '.mean.point_estimate' target/criterion/sha256_ref/new/estimates.json)
           echo $M > mean.txt
 
       - name: Extract size
+        shell: bash
         run: |
           LIB=$(ls -1t lib/lib*.rlib | head -1)
           stat -c %s "$LIB" > size.txt
