@@ -105,7 +105,7 @@ pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
                     .wrapping_add(w[$i - 16]);
             }
 
-            let wi = w[$i];
+            let wi = unsafe { *wp.add($i) };
             let ki = unsafe { *kp.add($i) };
 
             let t1 = h
