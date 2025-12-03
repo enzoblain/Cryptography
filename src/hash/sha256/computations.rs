@@ -32,18 +32,6 @@ pub fn maj(a: u32, b: u32, c: u32) -> u32 {
 
 #[cfg(not(feature = "speed"))]
 pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
-    let wp = w.as_mut_ptr();
-
-    unsafe {
-        for i in 16..64 {
-            let val = (*wp.add(i - 16))
-                .wrapping_add(small_sigma0(*wp.add(i - 15)))
-                .wrapping_add(*wp.add(i - 7))
-                .wrapping_add(small_sigma1(*wp.add(i - 2)));
-            *wp.add(i) = val;
-        }
-    }
-
     let mut a = state[0];
     let mut b = state[1];
     let mut c = state[2];
@@ -55,7 +43,16 @@ pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
 
     let wp = w.as_ptr();
     let kp = K256.as_ptr();
-    for i in 0..64 {
+    for (i, item) in w.iter_mut().enumerate().take(64) {
+        if i >= 16 {
+            unsafe {
+                *item = (*wp.add(i - 16))
+                    .wrapping_add(small_sigma0(*wp.add(i - 15)))
+                    .wrapping_add(*wp.add(i - 7))
+                    .wrapping_add(small_sigma1(*wp.add(i - 2)));
+            }
+        }
+
         let wi = unsafe { *wp.add(i) };
         let ki = unsafe { *kp.add(i) };
 
@@ -101,15 +98,15 @@ pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
     let kp = K256.as_ptr();
     macro_rules! R {
         ($i:expr) => {{
-            let wi = unsafe { *wp.add($i) };
-            let ki = unsafe { *kp.add($i) };
-
             if $i >= 16 {
                 w[$i] = small_sigma1(w[$i - 2])
                     .wrapping_add(w[$i - 7])
                     .wrapping_add(small_sigma0(w[$i - 15]))
                     .wrapping_add(w[$i - 16]);
             }
+
+            let wi = w[$i];
+            let ki = unsafe { *kp.add($i) };
 
             let t1 = h
                 .wrapping_add(big_sigma1(e))
