@@ -87,8 +87,6 @@ pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
     let mut g = state[6];
     let mut h = state[7];
 
-    let wp = w.as_ptr();
-    let kp = K256.as_ptr();
     macro_rules! R {
         ($i:expr) => {{
             if $i >= 16 {
@@ -98,14 +96,11 @@ pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 64]) {
                     .wrapping_add(w[$i - 16]);
             }
 
-            let wi = unsafe { *wp.add($i) };
-            let ki = unsafe { *kp.add($i) };
-
             let t1 = h
                 .wrapping_add(big_sigma1(e))
                 .wrapping_add(ch(e, f, g))
-                .wrapping_add(wi)
-                .wrapping_add(ki);
+                .wrapping_add(w[$i])
+                .wrapping_add(K256[$i]);
 
             let t2 = big_sigma0(a).wrapping_add(maj(a, b, c));
 
