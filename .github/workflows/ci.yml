@@ -19,73 +19,41 @@ jobs:
       - name: Get crate name
         id: getcrate
         run: |
-          set -euo pipefail
-          NAME=$(grep -E '^name\s*=' Cargo.toml | head -1 | cut -d'"' -f2)
-          [ -n "$NAME" ] || { echo "Crate name not found" >&2; exit 1; }
+          NAME=$(grep '^name' Cargo.toml | head -1 | cut -d'"' -f2)
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Build default
-        run: |
-          set -euo pipefail
-          rm -rf target
-          RUSTFLAGS="-C opt-level=2 -C lto=thin -C codegen-units=8" cargo build --release
+        run: cargo build --release
       - name: Save default
         run: |
-          set -euo pipefail
           mkdir -p lib_default
-          CRATE="${{ steps.getcrate.outputs.name }}"
-          RLIB=$(ls -1t target/release/deps/lib${CRATE}-*.rlib | head -1)
-          [ -n "${RLIB:-}" ] || { echo "rlib not found (default)" >&2; ls -la target/release/deps || true; exit 1; }
-          cp "$RLIB" lib_default/lib_default.rlib
-          echo "DEFAULT SHA and size:"
-          sha256sum lib_default/lib_default.rlib || shasum -a 256 lib_default/lib_default.rlib
-          stat -c %s lib_default/lib_default.rlib || wc -c < lib_default/lib_default.rlib
+          cp target/release/deps/*.rlib lib_default/
       - uses: actions/upload-artifact@v4
         with:
           name: lib_default
-          path: lib_default/lib_default.rlib
+          path: lib_default/
 
       - name: Build speed
-        run: |
-          set -euo pipefail
-          rm -rf target
-          RUSTFLAGS="-C opt-level=3 -C lto=thin -C codegen-units=1" cargo build --release --features speed
+        run: cargo build --release --features speed
       - name: Save speed
         run: |
-          set -euo pipefail
           mkdir -p lib_speed
-          CRATE="${{ steps.getcrate.outputs.name }}"
-          RLIB=$(ls -1t target/release/deps/lib${CRATE}-*.rlib | head -1)
-          [ -n "${RLIB:-}" ] || { echo "rlib not found (speed)" >&2; ls -la target/release/deps || true; exit 1; }
-          cp "$RLIB" lib_speed/lib_speed.rlib
-          echo "SPEED SHA and size:"
-          sha256sum lib_speed/lib_speed.rlib || shasum -a 256 lib_speed/lib_speed.rlib
-          stat -c %s lib_speed/lib_speed.rlib || wc -c < lib_speed/lib_speed.rlib
+          cp target/release/deps/*.rlib lib_speed/
       - uses: actions/upload-artifact@v4
         with:
           name: lib_speed
-          path: lib_speed/lib_speed.rlib
+          path: lib_speed/
 
       - name: Build ref
-        run: |
-          set -euo pipefail
-          rm -rf target
-          RUSTFLAGS="-C opt-level=1 -C lto=off -C codegen-units=16" cargo build --release --benches --features ref
+        run: cargo build --release --benches
       - name: Save ref
         run: |
-          set -euo pipefail
           mkdir -p lib_ref
-          CRATE="${{ steps.getcrate.outputs.name }}"
-          RLIB=$(ls -1t target/release/deps/lib${CRATE}-*.rlib | head -1)
-          [ -n "${RLIB:-}" ] || { echo "rlib not found (ref)" >&2; ls -la target/release/deps || true; exit 1; }
-          cp "$RLIB" lib_ref/lib_ref.rlib
-          echo "REF SHA and size:"
-          sha256sum lib_ref/lib_ref.rlib || shasum -a 256 lib_ref/lib_ref.rlib
-          stat -c %s lib_ref/lib_ref.rlib || wc -c < lib_ref/lib_ref.rlib
+          cp target/release/deps/*.rlib lib_ref/
       - uses: actions/upload-artifact@v4
         with:
           name: lib_ref
-          path: lib_ref/lib_ref.rlib
+          path: lib_ref/
 
   test_default:
     runs-on: ubuntu-latest
@@ -93,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests (default)
+      - name: Run tests
         run: cargo test --verbose
 
   test_speed:
@@ -118,32 +86,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lib_default
-          path: lib
+          path: lib_default
 
       - name: Extract mean
         shell: bash
         run: |
-          set -euo pipefail
-          FILE="target/criterion/sha256/new/estimates.json"
-          M=$(jq '.mean.point_estimate' "$FILE")
-          echo "$M" > mean.txt
-
-      - name: Verify and size
-        shell: bash
-        run: |
-          set -euo pipefail
-          FILE="lib/lib_default.rlib"
-          [ -f "$FILE" ] || { echo "Missing $FILE" >&2; ls -la lib || true; exit 1; }
-          echo "Downloaded DEFAULT SHA:"
-          sha256sum "$FILE" || shasum -a 256 "$FILE"
-          stat -c %s "$FILE" > size.txt || wc -c < "$FILE" > size.txt
+          M=$(jq '.mean.point_estimate' target/criterion/sha256/new/estimates.json)
+          echo $M > mean.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: classic256
-          path: |
-            mean.txt
-            size.txt
+          path: mean.txt
 
   bench_speed:
     runs-on: windows-latest
@@ -158,32 +112,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lib_speed
-          path: lib
+          path: lib_speed
 
       - name: Extract mean
         shell: bash
         run: |
-          set -euo pipefail
-          FILE="target/criterion/sha256/new/estimates.json"
-          M=$(jq '.mean.point_estimate' "$FILE")
-          echo "$M" > mean.txt
-
-      - name: Verify and size
-        shell: bash
-        run: |
-          set -euo pipefail
-          FILE="lib/lib_speed.rlib"
-          [ -f "$FILE" ] || { echo "Missing $FILE" >&2; ls -la lib || true; exit 1; }
-          echo "Downloaded SPEED SHA:"
-          sha256sum "$FILE" || shasum -a 256 "$FILE"
-          stat -c %s "$FILE" > size.txt || wc -c < "$FILE" > size.txt
+          M=$(jq '.mean.point_estimate' target/criterion/sha256/new/estimates.json)
+          echo $M > mean.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: turbo256
-          path: |
-            mean.txt
-            size.txt
+          path: mean.txt
 
   bench_ref:
     runs-on: windows-latest
@@ -193,37 +133,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Run Reference 256
-        run: cargo bench --bench sha256_ref --features ref
+        run: cargo bench --bench sha256_ref
 
       - uses: actions/download-artifact@v4
         with:
           name: lib_ref
-          path: lib
+          path: lib_ref
 
       - name: Extract mean
         shell: bash
         run: |
-          set -euo pipefail
-          FILE="target/criterion/sha256_ref/new/estimates.json"
-          M=$(jq '.mean.point_estimate' "$FILE")
-          echo "$M" > mean.txt
-
-      - name: Verify and size
-        shell: bash
-        run: |
-          set -euo pipefail
-          FILE="lib/lib_ref.rlib"
-          [ -f "$FILE" ] || { echo "Missing $FILE" >&2; ls -la lib || true; exit 1; }
-          echo "Downloaded REF SHA:"
-          sha256sum "$FILE" || shasum -a 256 "$FILE"
-          stat -c %s "$FILE" > size.txt || wc -c < "$FILE" > size.txt
+          M=$(jq '.mean.point_estimate' target/criterion/sha256_ref/new/estimates.json)
+          echo $M > mean.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: ref256
-          path: |
-            mean.txt
-            size.txt
+          path: mean.txt
 
   summary:
     runs-on: ubuntu-latest
@@ -231,20 +157,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
 
-      - name: Print summary
+      - name: Measure final sizes + print summary
         run: |
-          set -euo pipefail
           M_DEF=$(cat classic256/mean.txt)
-          S_DEF=$(cat classic256/size.txt)
           M_SPD=$(cat turbo256/mean.txt)
-          S_SPD=$(cat turbo256/size.txt)
           M_REF=$(cat ref256/mean.txt)
-          S_REF=$(cat ref256/size.txt)
+
+          SIZE_DEF=$(du -sb lib_default | cut -f1)
+          SIZE_SPD=$(du -sb lib_speed | cut -f1)
+          SIZE_REF=$(du -sb lib_ref | cut -f1)
 
           echo
           echo "=== Performance Summary ==="
-          printf "%-20s | %-12s | %-12s\n" "Version" "Speed" "Size"
-          printf "%-20s-+-%-12s-+-%-12s\n" "--------------------" "------------" "------------"
-          printf "%-20s | %-12s | %-12s\n" "Classic 256" "$M_DEF" "$S_DEF"
-          printf "%-20s | %-12s | %-12s\n" "Turbo 256"   "$M_SPD" "$S_SPD"
-          printf "%-20s | %-12s | %-12s\n" "Reference 256" "$M_REF" "$S_REF"
+          printf "%-20s | %-12s | %-12s\n" "Version" "Speed" "Size (bytes)"
+          printf "%-20s-+-%-12s-+-%-12s\n" "--------------------" "------------" "----------------"
+          printf "%-20s | %-12s | %-12s\n" "Classic 256" "$M_DEF" "$SIZE_DEF"
+          printf "%-20s | %-12s | %-12s\n" "Turbo 256"   "$M_SPD" "$SIZE_SPD"
+          printf "%-20s | %-12s | %-12s\n" "Reference"   "$M_REF" "$SIZE_REF"
