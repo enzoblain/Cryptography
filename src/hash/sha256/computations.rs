@@ -16,12 +16,6 @@
 //! | `ch` | Choice function | (e ∧ f) ⊕ (¬e ∧ g) |
 //! | `maj` | Majority function | (a ∧ b) ⊕ (a ∧ c) ⊕ (b ∧ c) |
 //!
-//! # Computation Modes
-//!
-//! This module provides two implementations of the 64 rounds:
-//! - **Standard** (default): Uses safe array bounds
-//! - **Speed** (with "speed" feature): Uses unsafe unrolled macros for performance
-//!
 //! # References
 //!
 //! - FIPS 180-4: Secure Hash Standard (SHS)
@@ -167,9 +161,7 @@ pub fn maj(a: u32, b: u32, c: u32) -> u32 {
 
 /// Executes all 64 rounds of the SHA-256 compression function.
 ///
-/// Standard SHA-256 implementation that computes the 64 rounds through a loop
-/// instead of using an unrolled round structure.
-/// Used when the "speed" feature is not enabled.
+/// Standard SHA-256 implementation that computes the 64 rounds through a loop.
 ///
 /// # Algorithm
 ///
@@ -185,12 +177,6 @@ pub fn maj(a: u32, b: u32, c: u32) -> u32 {
 ///
 /// * `state` - Current hash state [a, b, c, d, e, f, g, h], updated in-place
 /// * `w` - Message schedule array (16 values, circular buffer)
-///
-/// # Safety
-///
-/// Uses unsafe unchecked indexing with circular addressing (via `$i & 15`).
-/// This is safe because all indices are statically verified to be within bounds.
-#[cfg(not(feature = "speed"))]
 pub fn all_rounds(state: &mut [u32; 8], mut w: [u32; 16]) {
     // Load hash state into working variables
     let mut a = state[0];
@@ -204,23 +190,20 @@ pub fn all_rounds(state: &mut [u32; 8], mut w: [u32; 16]) {
 
     for i in 0..64 {
         if i >= 16 {
-            unsafe {
-                // Circular buffer indexing: access W[i-2], W[i-7], W[i-15], W[i-16] via modulo 16
-                let w16 = *w.get_unchecked((i - 16) & 15);
-                let w15 = *w.get_unchecked((i - 15) & 15);
-                let w7 = *w.get_unchecked((i - 7) & 15);
-                let w2 = *w.get_unchecked((i - 2) & 15);
+            // Circular buffer indexing: access W[i-2], W[i-7], W[i-15], W[i-16] via modulo 16
+            let w16 = w[(i - 16) & 15];
+            let w15 = w[(i - 15) & 15];
+            let w7 = w[(i - 7) & 15];
+            let w2 = w[(i - 2) & 15];
 
-                let s0 = small_sigma0(w15);
-                let s1 = small_sigma1(w2);
+            let s0 = small_sigma0(w15);
+            let s1 = small_sigma1(w2);
 
-                *w.get_unchecked_mut(i & 15) =
-                    w16.wrapping_add(s0).wrapping_add(w7).wrapping_add(s1);
-            }
+            w[i & 15] = w16.wrapping_add(s0).wrapping_add(w7).wrapping_add(s1);
         }
 
-        let wi = unsafe { *w.get_unchecked(i & 15) };
-        let ki = unsafe { *K256.get_unchecked(i) };
+        let wi = w[i & 15];
+        let ki = K256[i];
 
         let bs1 = big_sigma1(e);
         let ch = ch(e, f, g);
@@ -245,171 +228,6 @@ pub fn all_rounds(state: &mut [u32; 8], mut w: [u32; 16]) {
         b = a;
         a = t1.wrapping_add(t2);
     }
-
-    state[0] = state[0].wrapping_add(a);
-    state[1] = state[1].wrapping_add(b);
-    state[2] = state[2].wrapping_add(c);
-    state[3] = state[3].wrapping_add(d);
-    state[4] = state[4].wrapping_add(e);
-    state[5] = state[5].wrapping_add(f);
-    state[6] = state[6].wrapping_add(g);
-    state[7] = state[7].wrapping_add(h);
-}
-
-/// Executes all 64 rounds of the SHA-256 compression function (optimized version).
-///
-/// This is the performance-optimized implementation enabled via the `"speed"` feature.
-/// It fully unrolls all 64 rounds using macros, mutates the 16-word circular message
-/// schedule directly, and removes loop overhead for maximum throughput.
-/// This mode produces a heavier binary due to full unrolling, but is significantly faster.
-///
-/// # Algorithm
-///
-/// Similar to the standard implementation, but with optimizations:
-/// - Unrolled round macro for better instruction scheduling
-/// - Direct mutation of the mutable `w` array instead of copying
-/// - Four macro invocations per block for fewer instruction dependencies
-///
-/// # Arguments
-///
-/// * `state` - Current hash state [a, b, c, d, e, f, g, h], updated in-place
-/// * `w` - Mutable reference to the message schedule array (16 values, circular buffer)
-///
-/// # Performance Notes
-///
-/// This version may be faster on some CPUs due to:
-/// - Better compiler optimization of unrolled code
-/// - Reduced function call overhead from macro expansion
-/// - Improved instruction-level parallelism from scheduling
-///
-/// # Safety
-///
-/// Uses unsafe unchecked indexing with circular addressing (via `$i & 15`).
-/// This is safe because all indices are statically verified to be within bounds.
-#[cfg(feature = "speed")]
-pub fn all_rounds(state: &mut [u32; 8], w: &mut [u32; 16]) {
-    let mut a = state[0];
-    let mut b = state[1];
-    let mut c = state[2];
-    let mut d = state[3];
-    let mut e = state[4];
-    let mut f = state[5];
-    let mut g = state[6];
-    let mut h = state[7];
-
-    macro_rules! R {
-        ($i:expr) => {{
-            if $i >= 16 {
-                unsafe {
-                    // Circular buffer indexing: access W[i-2], W[i-7], W[i-15], W[i-16] via modulo 16
-                    let w16 = *w.get_unchecked(($i - 16) & 15);
-                    let w15 = *w.get_unchecked(($i - 15) & 15);
-                    let w7 = *w.get_unchecked(($i - 7) & 15);
-                    let w2 = *w.get_unchecked(($i - 2) & 15);
-
-                    let s0 = small_sigma0(w15);
-                    let s1 = small_sigma1(w2);
-
-                    *w.get_unchecked_mut($i & 15) =
-                        w16.wrapping_add(s0).wrapping_add(w7).wrapping_add(s1);
-                }
-            }
-
-            let wi = unsafe { *w.get_unchecked($i & 15) };
-            let ki = unsafe { *K256.get_unchecked($i) };
-
-            let bs1 = big_sigma1(e);
-            let ch = ch(e, f, g);
-
-            let bs0 = big_sigma0(a);
-            let maj = maj(a, b, c);
-
-            let t1 = h
-                .wrapping_add(bs1)
-                .wrapping_add(ch)
-                .wrapping_add(wi)
-                .wrapping_add(ki);
-
-            let t2 = bs0.wrapping_add(maj);
-
-            h = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(t1);
-            d = c;
-            c = b;
-            b = a;
-            a = t1.wrapping_add(t2);
-        }};
-    }
-
-    R!(0);
-    R!(1);
-    R!(2);
-    R!(3);
-    R!(4);
-    R!(5);
-    R!(6);
-    R!(7);
-    R!(8);
-    R!(9);
-    R!(10);
-    R!(11);
-    R!(12);
-    R!(13);
-    R!(14);
-    R!(15);
-
-    R!(16);
-    R!(17);
-    R!(18);
-    R!(19);
-    R!(20);
-    R!(21);
-    R!(22);
-    R!(23);
-    R!(24);
-    R!(25);
-    R!(26);
-    R!(27);
-    R!(28);
-    R!(29);
-    R!(30);
-    R!(31);
-
-    R!(32);
-    R!(33);
-    R!(34);
-    R!(35);
-    R!(36);
-    R!(37);
-    R!(38);
-    R!(39);
-    R!(40);
-    R!(41);
-    R!(42);
-    R!(43);
-    R!(44);
-    R!(45);
-    R!(46);
-    R!(47);
-
-    R!(48);
-    R!(49);
-    R!(50);
-    R!(51);
-    R!(52);
-    R!(53);
-    R!(54);
-    R!(55);
-    R!(56);
-    R!(57);
-    R!(58);
-    R!(59);
-    R!(60);
-    R!(61);
-    R!(62);
-    R!(63);
 
     state[0] = state[0].wrapping_add(a);
     state[1] = state[1].wrapping_add(b);

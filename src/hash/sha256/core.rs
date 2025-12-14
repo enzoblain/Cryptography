@@ -14,11 +14,8 @@
 //!
 //! # Performance Considerations
 //!
-//! - Uses `unsafe` code for performance-critical operations
 //! - Performs unaligned reads for processing input blocks
 //! - Implements a 16-word circular buffer for the message schedule (`W`)
-//! - Removes bounds checks via unchecked indexing (`get_unchecked`)
-//! - Supports two computation modes via the `"speed"` Cargo feature
 //!
 //! # Functions
 //!
@@ -29,8 +26,6 @@ use super::H256_INIT;
 use super::computations::all_rounds;
 use crate::primitives::U256;
 
-use core::ptr::{copy_nonoverlapping, read_unaligned};
-
 /// Compresses a single 512-bit (64-byte) block using the SHA-256 compression function.
 ///
 /// This function implements the main SHA-256 compression function which updates the state
@@ -40,11 +35,6 @@ use core::ptr::{copy_nonoverlapping, read_unaligned};
 ///
 /// * `block` - A 64-byte block to process
 /// * `state` - The current hash state (8 x 32-bit values), updated in-place
-///
-/// # Safety
-///
-/// This function uses unsafe code to perform unaligned reads from the input block
-/// for performance. The block parameter must be valid for at least 64 bytes.
 ///
 /// # Details
 ///
@@ -57,16 +47,12 @@ pub fn compress(block: &[u8; 64], state: &mut [u32; 8]) {
     let mut w = [0u32; 16];
 
     for (i, slot) in w.iter_mut().enumerate().take(16) {
-        // Read unaligned u32 and convert from big-endian to native byte order
-        let ptr = unsafe { block.as_ptr().add(i * 4) as *const u32 };
-        *slot = u32::from_be(unsafe { read_unaligned(ptr) });
+        // Read u32 in big-endian format
+        let idx = i * 4;
+        *slot = u32::from_be_bytes([block[idx], block[idx + 1], block[idx + 2], block[idx + 3]]);
     }
 
-    #[cfg(not(feature = "speed"))]
     all_rounds(state, w);
-
-    #[cfg(feature = "speed")]
-    all_rounds(state, &mut w);
 }
 
 /// Computes the SHA-256 hash of the input data.
@@ -98,21 +84,6 @@ pub fn compress(block: &[u8; 64], state: &mut [u32; 8]) {
 /// ```ignore
 /// let hash = sha256(b"hello");
 /// ```
-///
-/// # Performance
-///
-/// The function supports two optimization levels:
-/// - **Standard mode**: Uses safe array indexing
-/// - **Speed mode** (with "speed" feature): Uses unsafe indexing with circular buffering
-///
-/// # Safety
-///
-/// This function uses `unsafe` code internally for:
-/// - Pointer arithmetic when copying input data
-/// - Unaligned memory reads
-/// - Circular buffer indexing
-///
-/// However, the function is safe to call with any input slice.
 pub fn sha256(input: &[u8]) -> U256 {
     let mut state = H256_INIT;
 
@@ -120,8 +91,8 @@ pub fn sha256(input: &[u8]) -> U256 {
     let len = input.len();
 
     while i + 64 <= len {
-        // Transmute slice to 64-byte block pointer
-        let block: &[u8; 64] = unsafe { &*(input.as_ptr().add(i) as *const [u8; 64]) };
+        // Convert slice to 64-byte block
+        let block: &[u8; 64] = input[i..i + 64].try_into().unwrap();
         compress(block, &mut state);
         i += 64;
     }
@@ -129,13 +100,9 @@ pub fn sha256(input: &[u8]) -> U256 {
     let mut block = [0u8; 64];
     let rem = len - i;
 
-    unsafe {
-        let src = input.as_ptr().add(i);
-        let dst = block.as_mut_ptr();
-
-        copy_nonoverlapping(src, dst, rem);
-        *block.as_mut_ptr().add(rem) = 0x80; // SHA-256 padding bit
-    }
+    // Copy remaining bytes and add padding bit
+    block[..rem].copy_from_slice(&input[i..]);
+    block[rem] = 0x80; // SHA-256 padding bit
 
     if rem > 55 {
         // Need extra block for message length
@@ -146,13 +113,8 @@ pub fn sha256(input: &[u8]) -> U256 {
     let bit_len = (len as u64) << 3; // Convert bytes to bits
     let len_bytes = bit_len.to_be_bytes();
 
-    unsafe {
-        // Insert message lenght in the last 8 byte
-        let src = len_bytes.as_ptr();
-        let dst = block.as_mut_ptr().add(56);
-
-        copy_nonoverlapping(src, dst, 8);
-    }
+    // Insert message length in the last 8 bytes
+    block[56..64].copy_from_slice(&len_bytes);
 
     compress(&block, &mut state);
 

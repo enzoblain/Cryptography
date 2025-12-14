@@ -11,9 +11,6 @@
 //!
 //! # Features
 //!
-//! - **Two computation modes**: a standard loop-based implementation, and an
-//!   optimized `"speed"` mode (fully unrolled, heavier binary, but faster).
-//! - **Performance optimized**: Uses unsafe code carefully for performance-critical operations
 //! - **Memory efficient**: Operates on 64-byte blocks as per SHA-256 specification
 //! - **Padding handling**: Automatic message padding and length encoding
 //!

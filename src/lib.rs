@@ -1,5 +1,3 @@
-#![no_std]
-
 //! Lightweight cryptography primitives and hash functions.
 //!
 //! Exposes SHA-256 and a minimal 256-bit unsigned integer type (`U256`) with
